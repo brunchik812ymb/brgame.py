@@ -190,7 +190,9 @@ def logout():
 def my_bets():
     with tx() as c:
         bets = c.execute(
-            """SELECT b.*, e.title, e.sport FROM bets b JOIN events e ON e.id=b.event_id
+            """SELECT b.*, COALESCE(e.title, 'Удалённое событие') AS title,
+                      COALESCE(e.sport, '') AS sport
+               FROM bets b LEFT JOIN events e ON e.id=b.event_id
                WHERE b.user_id=? ORDER BY b.id DESC""", (g.user["id"],)).fetchall()
     return render_template("bets.html", bets=bets)
 
@@ -285,6 +287,23 @@ def admin_settle(eid):
                 else:
                     c.execute("UPDATE bets SET status='lost' WHERE id=?", (b["id"],))
             flash("Событие закрыто, ставки рассчитаны.")
+    return redirect("/admin")
+
+
+@app.route("/admin/delete/<int:eid>", methods=["POST"])
+@admin_required
+def admin_delete(eid):
+    with tx() as c:
+        ev = c.execute("SELECT * FROM events WHERE id=?", (eid,)).fetchone()
+        if ev:
+            if not ev["result"]:  # событие не закрыто: возвращаем ставки игрокам
+                for b in c.execute("SELECT * FROM bets WHERE event_id=? AND status='open'",
+                                   (eid,)).fetchall():
+                    c.execute("UPDATE users SET balance=balance+? WHERE id=?",
+                              (b["stake"], b["user_id"]))
+                c.execute("DELETE FROM bets WHERE event_id=? AND status='open'", (eid,))
+            c.execute("DELETE FROM events WHERE id=?", (eid,))
+            flash("Событие удалено.")
     return redirect("/admin")
 
 
@@ -510,7 +529,9 @@ T["admin.html"] = """{% extends "base.html" %}
  {% else %}<form method="post" action="/admin/settle/{{ e['id'] }}" style="display:flex;gap:8px;margin-top:10px">
   <input type="hidden" name="_csrf" value="{{ csrf }}">
   {% for k in ('1','x','2') %}<button class="btn sm ghost" name="result" value="{{ k }}">Закрыть: {{ PICKS[k] }}</button>{% endfor %}
- </form>{% endif %}</div>
+ </form>{% endif %}
+ <form method="post" action="/admin/delete/{{ e['id'] }}" style="margin-top:10px" onsubmit="return confirm('Удалить это событие?')">
+  <input type="hidden" name="_csrf" value="{{ csrf }}"><button class="btn sm ghost" style="color:var(--lose)">Удалить событие</button></form></div>
 {% endfor %}
 {% endblock %}"""
 
