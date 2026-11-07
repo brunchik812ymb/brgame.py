@@ -21,21 +21,24 @@ from jinja2 import DictLoader
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB = os.path.join(BASE_DIR, "bookmaker.db")
+DB = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "bookmaker.db"))
 PICKS = {"1": "П1", "x": "Х", "2": "П2"}
 ODDCOL = {"1": "o1", "x": "ox", "2": "o2"}
 START_BALANCE, MAX_STAKE = 1000, 10000
-ADMIN_NAME = "admin"  # <-- впишите сюда своё имя: зарегистрируйтесь под ним и станете админом
+ADMIN_NAME = os.environ.get("ADMIN_NAME", "brun")  # <-- впишите сюда своё имя (или задайте переменную ADMIN_NAME на хостинге)
 
 SECRET_FILE = os.path.join(BASE_DIR, ".secret")
-if not os.path.exists(SECRET_FILE):
-    with open(SECRET_FILE, "w", encoding="utf-8") as f:
-        f.write(secrets.token_hex(32))
-with open(SECRET_FILE, encoding="utf-8") as f:
-    SECRET_KEY = f.read().strip()
+SECRET_KEY = os.environ.get("SECRET_KEY")  # на хостинге ключ задаётся переменной окружения
+if not SECRET_KEY:
+    if not os.path.exists(SECRET_FILE):
+        with open(SECRET_FILE, "w", encoding="utf-8") as f:
+            f.write(secrets.token_hex(32))
+    with open(SECRET_FILE, encoding="utf-8") as f:
+        SECRET_KEY = f.read().strip()
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+app.config.update(SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_HTTPONLY=True)
 
 
 # ---------- база данных ----------
@@ -513,6 +516,7 @@ T["admin.html"] = """{% extends "base.html" %}
 
 app.jinja_env.loader = DictLoader(T)
 
+init_db()  # создаётся при загрузке файла, поэтому работает и под gunicorn
+
 if __name__ == "__main__":
-    init_db()
-    app.run(debug=True)
+    app.run(debug=os.environ.get("DEBUG") == "1")
